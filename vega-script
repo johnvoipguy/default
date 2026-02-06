@@ -1,0 +1,272 @@
+{
+"$schema": "https://vega.github.io/schema/vega/v5.json",
+"description": "BGP AS-Path Hop Graph from OpenBMP Data - Starting from 400779",
+"autosize": "fit",
+"data": [
+{
+"name": "hops",
+"url": {
+"%context%": true,
+"%timefield%": "@timestamp",
+"index": "openbmp-*",
+"body": {
+"size": 0,
+"query": {
+"bool": {
+"filter": [
+{ "term": { "type": "unicast_prefix" } },
+{ "term": { "action": "add" } }
+]
+}
+},
+"aggs": {
+"pairs": {
+"scripted_metric": {
+"init_script": "state.pairs = new HashMap()",
+"map_script": "def pathStr = doc['bgp.as_path.hops.keyword'].value; if (pathStr != null) { def hops = pathStr.split(','); if (hops.length > 0) { def current = '400779'; for (int i = 0; i < hops.length; i++) { def pair = current + '|' + hops[i]; state.pairs[pair] = (state.pairs[pair] != null) ? state.pairs[pair] + 1 : 1; current = hops[i]; } } }",
+"combine_script": "return state.pairs",
+"reduce_script": "def merged = new HashMap(); for (a in states) { for (e in a.entrySet()) { def k = e.getKey(); merged[k] = (merged[k] != null) ? merged[k] + e.getValue() : e.getValue(); } } def array = []; for (e in merged.entrySet()) { array.add({'key': e.getKey(), 'value': e.getValue()}); } return array;"
+}
+}
+}
+}
+},
+"format": { "property": "aggregations.pairs.value" },
+"transform": [
+{ "type": "formula", "expr": "split(datum.key, '|')[0]", "as": "source" },
+{ "type": "formula", "expr": "split(datum.key, '|')[1]", "as": "target" },
+{ "type": "formula", "expr": "datum.value", "as": "weight" }
+]
+},
+{
+"name": "endpoints",
+"source": "hops",
+"transform": [
+{ "type": "fold", "fields": ["source", "target"], "as": ["stack", "key"] },
+{ "type": "aggregate", "groupby": ["key"], "fields": ["weight"], "ops": ["sum"], "as": ["weight"] }
+]
+},
+{
+"name": "traffic",
+"source": "hops",
+"transform": [
+{ "type": "aggregate", "groupby": ["source", "target"], "fields": ["weight"], "ops": ["sum"], "as": ["weight"] }
+]
+}
+],
+"scales": [
+{
+"name": "endpointWeightScale",
+"type": "quantile",
+"domain": {"data": "endpoints", "field": "weight"},
+"range": [128,192,256,320,384,448,512,576,640,768,896,1024]
+},
+{
+"name": "fontsizeEndpointWeightScale",
+"type": "quantile",
+"domain": {"data": "endpoints", "field": "weight"},
+"range": [0,0,0,0,0,0,0,12]
+},
+{
+"name": "colorEndpointsWeightBlues",
+"type": "quantile",
+"domain": {"data": "endpoints", "field": "weight"},
+"range": ["#99ddff", "#80d4ff", "#66ccff", "#33bbff", "#00aaff", "#0099e6"]
+},
+{
+"name": "colorEndpointsWeightLightBlues",
+"type": "quantile",
+"domain": {"data": "endpoints", "field": "weight"},
+"range": ["#e6f7ff", "#cceeff", "#b3e6ff", "#99ddff"]
+},
+{
+"name": "trafficWeightScale",
+"type": "quantile",
+"domain": {"data": "traffic", "field": "weight"},
+"range": [1,2,3,4,6,8]
+},
+{
+"name": "colorTrafficWeightGreys",
+"type": "quantile",
+"domain": {"data": "traffic", "field": "weight"},
+"range": ["#ddd", "#ccc", "#bbb", "#aaa", "#999", "#888"]
+}
+],
+"signals": [
+{
+"name": "cx",
+"update": "width / 2"
+},
+{
+"name": "cy",
+"update": "height / 2"
+},
+{
+"name": "nodeCharge",
+"value": -128,
+"bind": {"input": "range", "min": -200, "max": 10, "step": 1}
+},
+{
+"name": "linkDistance",
+"value": 18,
+"bind": {"input": "range", "min": 8, "max": 64, "step": 1}
+},
+{
+"name": "decay",
+"value": 0.5,
+"bind": {"input": "range", "min": 0, "max": 1, "step": 0.01}
+},
+{
+"name": "gravityX",
+"value": 0.1,
+"bind": {"input": "range", "min": 0, "max": 1}
+},
+{
+"name": "gravityY",
+"value": 0.2,
+"bind": {"input": "range", "min": 0, "max": 1}
+},
+{
+"name": "static",
+"value": false,
+"bind": {"input": "checkbox"}
+},
+{
+"name": "fix",
+"value": false,
+"on": [
+{
+"events": "symbol:mouseout[!event.buttons], window:mouseup",
+"update": "false"
+},
+{
+"events": "symbol:mouseover",
+"update": "fix || true"
+},
+{
+"events": "[symbol:mousedown, window:mouseup] > window:mousemove!",
+"update": "xy()",
+"force": true
+}
+]
+},
+{
+"name": "node",
+"value": null,
+"on": [
+{
+"events": "symbol:mouseover",
+"update": "fix === true ? item() : node"
+}
+]
+},
+{
+"name": "restart",
+"value": false,
+"on": [
+{
+"events": {"signal": "fix"}, "update": "fix && fix.length"
+}
+]
+}
+],
+"marks": [
+{
+"name": "nodes",
+"type": "symbol",
+"zindex": 1,
+"from": {"data": "endpoints"},
+"on": [
+{
+"trigger": "fix",
+"modify": "node",
+"values": "fix === true ? {fx: node.x, fy: node.y} : {fx: fix[0], fy: fix[1]}"
+},
+{"trigger": "!fix", "modify": "node", "values": "{fx: null, fy: null}"}
+],
+"encode": {
+"enter": {
+"fill": {"scale": "colorEndpointsWeightBlues", "field": "weight"},
+"stroke": {"scale": "colorEndpointsWeightLightBlues", "field": "weight"},
+"xfocus": {"signal": "cx"},
+"yfocus": {"signal": "cy"}
+},
+"update": {
+"size": {"scale": "endpointWeightScale", "field": "weight"},
+"cursor": {"value": "pointer"}
+},
+"hover": {
+"tooltip": {
+"signal": "datum.key + ' (Hop Occurrences: ' + datum.weight + ')'"
+}
+}
+},
+"transform": [
+{
+"type": "force",
+"iterations": 160,
+"velocityDecay": {
+"signal": "decay"
+},
+"restart": {"signal": "restart"},
+"static": {"signal": "static"},
+"signal": "force",
+"forces": [
+{"force": "center", "x": {"signal": "cx"}, "y": {"signal": "cy"}},
+{"force": "x", "x": "xfocus", "strength": {"signal": "gravityX"}},
+{"force": "y", "y": "yfocus", "strength": {"signal": "gravityY"}},
+{"force": "collide", "radius": {"signal": "linkDistance"}},
+{"force": "nbody", "strength": {"signal": "nodeCharge"}},
+{"force": "link", "links": "traffic", "id": "key", "distance": {"signal": "linkDistance"}}
+]
+}
+]
+},
+{
+"type": "text",
+"zindex": 2,
+"from": {"data": "nodes"},
+"interactive": false,
+"encode": {
+"enter": {
+"fill": {"value": "black"},
+"fontSize": {"scale": "fontsizeEndpointWeightScale", "field": "weight"}
+},
+"update": {
+"y": {"field": "y", "offset": {"signal": "sqrt(datum.size/2) * 1.3"}},
+"x": {"field": "x"},
+"text": {"field": "key"},
+"align": {"value": "center"}
+}
+}
+},
+{
+"name": "paths",
+"type": "path",
+"from": {"data": "traffic"},
+"interactive": true,
+"encode": {
+"update": {
+"stroke": {"scale": "colorTrafficWeightGreys", "field": "weight"},
+"strokeWidth": {"scale": "trafficWeightScale", "field": "weight"}
+},
+"hover": {
+"tooltip": {
+"signal": "'Hop Occurrences: ' + datum.weight"
+}
+}
+},
+"transform": [
+{
+"type": "linkpath",
+"require": {"signal": "force"},
+"shape": "curve",
+"sourceX": "datum.source.x",
+"sourceY": "datum.source.y",
+"targetX": "datum.target.x",
+"targetY": "datum.target.y"
+}
+]
+}
+]
+}
