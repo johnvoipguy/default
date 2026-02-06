@@ -1,4 +1,3 @@
-{
 "$schema": "https://vega.github.io/schema/vega/v5.json",
 "description": "BGP AS-Path Hop Graph from OpenBMP Data - Starting from 400779",
 "autosize": "fit",
@@ -269,4 +268,3 @@
 ]
 }
 ]
-}
